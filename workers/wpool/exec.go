@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-func Worker(ctx context.Context, wg *sync.WaitGroup, jobs <-chan Job, results chan<- Result) {
+func Worker[A any, T any](ctx context.Context, wg *sync.WaitGroup, jobs <-chan Job[A, T], results chan<- Result[T]) {
 	defer wg.Done()
 	for {
 		select {
@@ -18,7 +18,7 @@ func Worker(ctx context.Context, wg *sync.WaitGroup, jobs <-chan Job, results ch
 			results <- job.Execute(ctx)
 		case <-ctx.Done():
 			fmt.Printf("cancelled worker. Error detail: %v\n", ctx.Err())
-			results <- Result{
+			results <- Result[T]{
 				Err: ctx.Err(),
 			}
 			return
@@ -26,23 +26,23 @@ func Worker(ctx context.Context, wg *sync.WaitGroup, jobs <-chan Job, results ch
 	}
 }
 
-type WorkerPool struct {
+type WorkerPool[A any, T any] struct {
 	workersCount int
-	jobs         chan Job
-	results      chan Result
+	jobs         chan Job[A, T]
+	results      chan Result[T]
 	Done         chan struct{}
 }
 
-func New(wcount int) WorkerPool {
-	return WorkerPool{
+func New[A any, T any](wcount int) WorkerPool[A, T] {
+	return WorkerPool[A, T]{
 		workersCount: wcount,
-		jobs:         make(chan Job, wcount),
-		results:      make(chan Result, wcount),
+		jobs:         make(chan Job[A, T], wcount),
+		results:      make(chan Result[T], wcount),
 		Done:         make(chan struct{}),
 	}
 }
 
-func (wp WorkerPool) Run(ctx context.Context) {
+func (wp WorkerPool[A, T]) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	for i := 0; i < wp.workersCount; i++ {
@@ -58,12 +58,12 @@ func (wp WorkerPool) Run(ctx context.Context) {
 	close(wp.results)
 }
 
-func (wp WorkerPool) Results() <-chan Result {
+func (wp WorkerPool[A, T]) Results() <-chan Result[T] {
 	return wp.results
 }
 
-func (wp WorkerPool) GenerateFrom(jobsBulk []Job) {
-	for i, _ := range jobsBulk {
+func (wp WorkerPool[A, T]) GenerateFrom(jobsBulk []Job[A, T]) {
+	for i := range jobsBulk {
 		wp.jobs <- jobsBulk[i]
 	}
 	close(wp.jobs)

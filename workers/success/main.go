@@ -2,18 +2,17 @@ package main
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"reflect"
 
 	"github.com/plastikfan/asynco/workers/wpool"
 )
 
-func main() {
-	fmt.Println("---> SUCCESS ✔️")
+type Arguments int
+type OutputType int
+type IntResult wpool.Result[OutputType]
 
+func main() {
 	ctx := context.TODO()
-	errDefault := errors.New("wrong argument type")
 	descriptor := wpool.JobDescriptor{
 		ID:    wpool.JobID("1"),
 		JType: wpool.JobType("anyType"),
@@ -23,54 +22,43 @@ func main() {
 		},
 	}
 
-	execFn := func(ctx context.Context, args interface{}) (interface{}, error) {
-		argVal, ok := args.(int)
-		if !ok {
-			return nil, errDefault
-		}
+	doubler := func(ctx context.Context, args Arguments) (OutputType, error) {
+		output := OutputType(args * 2)
 
-		return argVal * 2, nil
+		return output, nil
 	}
 
 	o := struct {
-		name   string
-		fields wpool.Fields
-		want   wpool.Result
+		name string
+		want IntResult
 	}{
-		name: "job execution success",
-		fields: wpool.Fields{
-			Descriptor: descriptor,
-			ExecFn:     execFn,
-			Args:       10,
-		},
-		want: wpool.Result{
+		name: "✔️ job execution success (doubler)",
+		want: IntResult{
 			Value:      20,
 			Descriptor: descriptor,
 		},
 	}
 
-	j := wpool.Job{
-		ExecFn: func(ctx context.Context, args interface{}) (interface{}, error) {
-			argVal, ok := args.(int)
-			if !ok {
-				return nil, errDefault
-			}
-
-			return argVal * 2, nil
-		},
-		Args: 10,
+	j := wpool.Job[Arguments, OutputType]{
+		Descriptor: descriptor,
+		ExecFn:     doubler,
+		Args:       10,
 	}
+
+	fmt.Printf("===[ running job '%v' ]===\n", o.name)
 
 	got := j.Execute(ctx)
 
 	if o.want.Err != nil {
-		if !reflect.DeepEqual(got.Err, o.want.Err) {
+		if got.Err != o.want.Err {
 			fmt.Printf("execute() = %v, wantError %v\n", got.Err, o.want.Err)
+			return
 		}
-		return
 	}
 
-	if !reflect.DeepEqual(got, o.want) {
-		fmt.Printf("execute() = %v, want %v\n", got, o.want)
+	if o.want.Value == got.Value {
+		fmt.Printf("🎯 SUCCESS(result): %v\n", got.Value)
+	} else {
+		fmt.Printf("💥 FAILED(result): %v\n", got.Value)
 	}
 }
