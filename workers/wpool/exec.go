@@ -6,9 +6,13 @@ import (
 	"sync"
 )
 
+// Why use a wait group, when we can just have a done channel?
+
 func Worker[A any, T any](ctx context.Context, wg *sync.WaitGroup, jobs <-chan Job[A, T], results chan<- Result[T]) {
 	defer wg.Done()
 	for {
+		// THIS IS DEADLOCK BLOCKING IF THERE IS NO WORK. WE NEED TO PRE-EMPT WITH A TIMEOUT
+		//
 		select {
 		case job, ok := <-jobs:
 			if !ok {
@@ -45,6 +49,11 @@ func New[A any, T any](wcount int) WorkerPool[A, T] {
 func (wp WorkerPool[A, T]) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 
+	// The current design is not very good on startup. No consideration is
+	// taken of the fact that there maybe no work to do. Also, if there is
+	// less work to do that available workers, then we will deadlock (maybe!)
+	//
+
 	for i := 0; i < wp.workersCount; i++ {
 		wg.Add(1)
 		// fan out worker goroutines
@@ -66,5 +75,5 @@ func (wp WorkerPool[A, T]) GenerateFrom(jobsBulk []Job[A, T]) {
 	for i := range jobsBulk {
 		wp.jobs <- jobsBulk[i]
 	}
-	close(wp.jobs)
+	close(wp.jobs) // THIS IS A PROBLEM. WE CANT HAVE A STREAMING MODEL WITH THIS CLOSURE
 }
