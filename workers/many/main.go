@@ -14,55 +14,21 @@ type OutputType int
 type IntResult wpool.Result[OutputType]
 
 const WorkerCount = 3
-const JobCount = 4
+const JobCount = 8
 
-type MyContext struct {
-	CompleteBy time.Time
-	Complete   <-chan struct{}
-	Error      error
+var doubler = func(ctx context.Context, args Arguments) (OutputType, error) {
+	output := OutputType(args * 2)
+
+	return output, nil
 }
 
-func (c MyContext) Deadline() (time.Time, bool) {
-	return c.CompleteBy, c.CompleteBy.IsZero()
-}
+func makeLoad(size int, workload []wpool.Job[Arguments, OutputType]) []wpool.Job[Arguments, OutputType] {
+	offset := 0
 
-func (c MyContext) Done() <-chan struct{} {
-	return c.Complete
-}
-
-func (c MyContext) Err() error {
-	return c.Error
-}
-
-func (c MyContext) Value(key any) any {
-	return 42
-}
-
-func main() {
-	doubler := func(ctx context.Context, args Arguments) (OutputType, error) {
-		output := OutputType(args * 2)
-
-		return output, nil
-	}
-
-	deadline := time.Now().Add(time.Second * 2)
-
-	ctx := MyContext{
-		CompleteBy: deadline,
-	}
-
-	pool := wpool.New[Arguments, OutputType](WorkerCount)
-
-	workload := []wpool.Job[Arguments, OutputType]{}
-
-	// This deadlocks when the job count > worker count:
-	//
-	// 💠 ===[ running pool ->  jobs:'4', workers:'3' ]=== 💠
-	// fatal error: all goroutines are asleep - deadlock!
-	//
-	for i := 0; i < JobCount; i++ {
+	for i := 0; i < size; i++ {
+		num := i + offset
 		descriptor := wpool.JobDescriptor{
-			ID:    wpool.JobID(strconv.Itoa(i)),
+			ID:    wpool.JobID(strconv.Itoa(num)),
 			JType: wpool.JobType("anyType"),
 			Metadata: wpool.JobMetadata{
 				"foo": "foo",
@@ -72,13 +38,51 @@ func main() {
 		j := wpool.Job[Arguments, OutputType]{
 			Descriptor: descriptor,
 			ExecFn:     doubler,
-			Args:       10,
+			Args:       Arguments(10 * i),
 		}
 		workload = append(workload, j)
 	}
+
+	return workload
+}
+
+func main() {
+	pool := wpool.New[Arguments, OutputType](WorkerCount)
+
+	ctx, cancel := context.WithTimeout(context.TODO(), time.Second*1)
+	defer cancel()
+
+	workload := makeLoad(JobCount, []wpool.Job[Arguments, OutputType]{})
+
 	fmt.Printf("💠 ===[ running pool ->  jobs:'%v', workers:'%v' ]=== 💠\n", len(workload), WorkerCount)
 
-	pool.GenerateFrom(workload)
+	go pool.GenerateFrom(workload)
+	go pool.Run(ctx)
 
-	pool.Run(ctx)
+	resultCount := 0
+
+	for {
+		select {
+		case r, ok := <-pool.Results():
+			if !ok {
+				fmt.Println("---> 🍒 CONTINUE")
+				continue
+			}
+
+			i, err := strconv.ParseInt(string(r.Descriptor.ID), 10, 64)
+			if err != nil {
+				fmt.Printf("💢 unexpected error: %v", err)
+				return
+			}
+
+			resultCount++
+			fmt.Printf("---> 🧙‍♂️ RESULT(descriptor: %v): '%v'\n", i, r.Value)
+		case <-pool.Done:
+			fmt.Printf("🎯 We're done now!!! (result count: '%v')\n", resultCount)
+			return
+
+			// don't need to use a default clause here; the loop will spin:
+			// default:
+		}
+	}
 }

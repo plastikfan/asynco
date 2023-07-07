@@ -10,12 +10,14 @@ import (
 
 func Worker[A any, T any](ctx context.Context, wg *sync.WaitGroup, jobs <-chan Job[A, T], results chan<- Result[T]) {
 	defer wg.Done()
+	fmt.Printf("🤖 Worker starting ...\n")
 	for {
 		// THIS IS DEADLOCK BLOCKING IF THERE IS NO WORK. WE NEED TO PRE-EMPT WITH A TIMEOUT
 		//
 		select {
 		case job, ok := <-jobs:
 			if !ok {
+				fmt.Printf("🧊 Worker DONE(remote closed) ...\n")
 				return
 			}
 			// fan-in job execution multiplexing results into the results channel
@@ -50,18 +52,22 @@ func (wp WorkerPool[A, T]) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 
 	// The current design is not very good on startup. No consideration is
-	// taken of the fact that there maybe no work to do. Also, if there is
-	// less work to do that available workers, then we will deadlock (maybe!)
+	// taken of the fact that there maybe no work to do.
 	//
+	fmt.Printf("🦄 Running %v workers\n", wp.workersCount)
 
 	for i := 0; i < wp.workersCount; i++ {
 		wg.Add(1)
 		// fan out worker goroutines
-		//reading from jobs channel and
-		//pushing calcs into results channel
+		// reading from jobs channel and
+		// pushing calcs into results channel
+
 		go Worker(ctx, &wg, wp.jobs, wp.results)
 	}
 
+	// sometimes, not all results are read from the results channel before the
+	// program finishes.
+	//
 	wg.Wait()
 	close(wp.Done)
 	close(wp.results)
@@ -73,7 +79,17 @@ func (wp WorkerPool[A, T]) Results() <-chan Result[T] {
 
 func (wp WorkerPool[A, T]) GenerateFrom(jobsBulk []Job[A, T]) {
 	for i := range jobsBulk {
-		wp.jobs <- jobsBulk[i]
+		wp.jobs <- jobsBulk[i] // THIS BLOCKS WHEN THE CHANNEL IS FULL
 	}
-	close(wp.jobs) // THIS IS A PROBLEM. WE CANT HAVE A STREAMING MODEL WITH THIS CLOSURE
+
+	fmt.Printf("💤 Closing job stream.\n")
+
+	// shouldn't close the jobs channel here, it the client responsibility
+	// to do so.
+	//
+	// THIS IS A PROBLEM. WE CANT HAVE A STREAMING MODEL WITH THIS CLOSURE
+	//
+	// We need to decouple the close from dispatching of jobs to the pool
+	//
+	close(wp.jobs)
 }
