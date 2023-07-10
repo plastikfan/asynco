@@ -104,20 +104,23 @@ func main() {
 	pool := wpool.New[Inputs, OutputType](workerCount)
 
 	fmt.Printf("💧 ARGUMENTS(%v): '%v', workerCount: '%v' \n", len(args), args, workerCount)
-	for _, b := range batches {
-		workload := makeLoad(b, []wpool.Job[Inputs, OutputType]{})
 
-		fmt.Printf("💠 ===[ running pool ->  jobs-batch:'%v', workers:'%v' ]=== 💠\n", b, workerCount)
+	go func() {
+		for _, b := range batches {
+			fmt.Printf("💠 ===[ running pool ->  jobs-batch:'%v', workers:'%v' ]=== 💠\n", b, workerCount)
 
-		go pool.GenerateFrom(workload)
-	}
+			workload := makeLoad(b, []wpool.Job[Inputs, OutputType]{})
+			pool.Dispatch(workload)
+		}
+	}()
+
 	fmt.Printf("🍤 TOTAL WORKLOAD: '%v'\n", sum(batches...))
 
 	go pool.Run(ctx)
 
 	resultCount := 0
 
-	for {
+	for running := true; running; {
 		select {
 		case r, ok := <-pool.Results():
 			if !ok {
@@ -125,20 +128,16 @@ func main() {
 				continue
 			}
 
-			i, err := strconv.ParseInt(string(r.Descriptor.ID), 10, 64)
-			if err != nil {
-				fmt.Printf("💢 unexpected error: %v", err)
-				return
-			}
-
 			resultCount++
-			fmt.Printf("---> 🧙‍♂️ RESULT(descriptor: %v): '%v'\n", i, r.Value)
+			fmt.Printf("---> 🧙‍♂️ RESULT(descriptor: %v): '%v'\n", r.Descriptor.ID, r.Value)
 		case <-pool.Done:
-			fmt.Printf("🎯 We're done now!!! (result count: '%v')\n", resultCount)
-			return
+			running = false
 
 			// don't need to use a default clause here; the loop will spin:
 			// default:
 		}
 	}
+
+	pool.Finish()
+	fmt.Printf("🎯 We're done now!!! (result count: '%v')\n", resultCount)
 }

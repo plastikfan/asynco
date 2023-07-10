@@ -77,11 +77,14 @@ func (wp WorkerPool[A, T]) Results() <-chan Result[T] {
 	return wp.results
 }
 
-func (wp WorkerPool[A, T]) GenerateFrom(jobsBulk []Job[A, T]) {
+func (wp WorkerPool[A, T]) Dispatch(jobsBulk []Job[A, T]) {
 	for i := range jobsBulk {
 		wp.jobs <- jobsBulk[i] // THIS BLOCKS WHEN THE CHANNEL IS FULL
 	}
 
+}
+
+func (wp WorkerPool[A, T]) Finish() {
 	fmt.Printf("💤 Closing job stream.\n")
 
 	// shouldn't close the jobs channel here, it the client responsibility
