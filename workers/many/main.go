@@ -54,7 +54,7 @@ func makeLoad(size int, workload []wpool.Job[Inputs, OutputType]) []wpool.Job[In
 		j := wpool.Job[Inputs, OutputType]{
 			Descriptor: descriptor,
 			ExecFn:     doubler,
-			Args:       Inputs(10 * i),
+			Args:       Inputs(10 * (i + 1)),
 		}
 		workload = append(workload, j)
 	}
@@ -126,10 +126,11 @@ func main() {
 			if !ok {
 				fmt.Println("---> 🍒 CONTINUE")
 				continue
+			} else {
+				resultCount++
+				fmt.Printf("---> 🧙‍♂️ RESULT(descriptor: %v): '%v'\n", r.Descriptor.ID, r.Value)
 			}
 
-			resultCount++
-			fmt.Printf("---> 🧙‍♂️ RESULT(descriptor: %v): '%v'\n", r.Descriptor.ID, r.Value)
 		case <-pool.Done:
 			running = false
 
